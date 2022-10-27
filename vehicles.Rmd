@@ -1,0 +1,700 @@
+---
+title: "FINAL EXAM"
+author: 'Sidhartha Amperayani'
+date: \today
+output:
+    pdf_document:
+        toc: true
+        toc_depth: 2
+        latex_engine: xelatex
+header-includes:
+  \usepackage{booktabs}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(data.table)
+library(plyr)
+library(ggmap)
+library(dplyr)
+library(gmodels)
+library(bit64)
+library(tidyr)
+library(fmsb)
+library(ggraph)
+library(igraph)
+library(tidyverse)
+library(ggdark)
+library(RColorBrewer)
+library(ggplot2)
+library(treemap)
+library(patchwork) # To display 2 charts together
+library(hrbrthemes)
+require(scales)
+options(scipen = 999)
+library(ggpubr)
+theme_set(theme_pubr())
+library(usmap)
+library(viridis)
+```
+
+# Introduction
+
+The dataset is about the vehicle listings postedt up on the world's largest collection of used vehicles for sale, Craigslist during the months of April 2021 and May 2021.
+
+The dataset features information related to the vehicles (odometer reading, the year the vehicle was bought in, price, manufacturer and model of the vehicle, condition of the vehicle, and, fuel used) and the location (latitude, longitude, region, and state) they were posted in.
+
+Through this project, we can better understand the metrics of the automobile industry as a whole.
+
+It opens the window of performing analysis based on state, manufacturer, fuel used, etc.
+
+-   Which manufacturers and models are popular.
+
+-   Depreciation of a vehicles value over the years.
+
+-   States where the average price is least, hinting best state to buy a vehicle in.
+
+-   Number of vehicles that are being sold by the vehicle's age.
+
+-   Manufacturers and their best performing models and their average prices, and average odometer readings
+
+-   Most popular fuel type
+
+-   state and region wise popular manufacturers and their prices, and many more
+
+With these metrics, a user of Craigslist or a person looking to buy a used vehicle/ new vehicle can make an informed decision as well as help the vehicle manufacturer to better understand their market and their competitor's market.
+
+# Parameters
+
+All the parameters required for this file are initialized here.
+
+```{r Parameters, echo=FALSE, message=FALSE, warning=FALSE,message=FALSE, warning=FALSE, include=FALSE}
+# All important parameters
+mainFile <- 'vehicles.csv'
+key <- "AIzaSyBn71X_SGI5wnpZvQLcFhC7dacG-DQXaHw"
+```
+
+```{r preprocessing,message=FALSE, warning=FALSE, include=FALSE}
+
+df <- fread(mainFile)
+df <- subset(df, select = -c(id,url,region_url,VIN,paint_color,county,image_url,title_status,size,description,posting_date,transmission))
+df <-  df %>% 
+  mutate_if(is.integer64, as.double)
+df <- filter(df, year < 2022)
+df <- filter(df, price > 99)
+df[df == ""] = NA
+
+df$manufacturer[df$manufacturer=="rover"]<-"land rover"
+df$model[df$model=="-"]<-NA
+df$model[df$model=="00000"]<-NA
+df$model[df$model=="0"]<-NA
+df$model[df$model==":"]<-NA
+df$model[df$model==".. ect."]<-NA
+df$model[df$model=="."]<-NA
+df$model[df$model==",,,,,,,"]<-NA
+df$model[df$model=="* vmi * ♿"]<-NA
+df$model[df$model=="$362.47, $1000 down, oac, 2.9%apr $362.47,luxury low miles $1000 down, only 40k miles"]<-NA
+df$model[df$model=="%"]<-NA
+df$model[df$model=='""t""']<-NA
+df <- df %>%
+  filter(!if_all(c(manufacturer,model), is.na))
+
+df$continent <- with(df, ifelse(manufacturer %in% c('gmc','chevrolet', 'ford', 'jeep','ram','mercury','saturn','harley-davidson','cadillac','dodge','buick','chrysler','lincoln','pontiac','tesla'), 'North America', 
+ifelse(manufacturer %in% c('toyota','datsun','nissan','mazda','honda','lexus','infiniti','subaru','acura','hyundai','mitsubishi','kia'),'Asia',
+ifelse(manufacturer %in% c('morgan','land rover','aston-martin','fiat','mini','ferrari','porsche','volkswagen','bmw','mercedes-benz','alfa-romeo','audi','volvo','jaguar'),'Europe', NA))))
+df <- df %>% 
+  distinct()
+
+```
+
+# Data Pre processing
+
+-   Removed id, url, region_url, VIN, paint_color, county, image_url, title_status, size, description, posting_date, transmission.
+
+-   converted integer64 to double.
+
+-   Considered only those listings whose prices are greater than \$100.
+
+-   Replaced empty values with NA.
+
+-   Removed listings whose model or manufacturer details are missing.
+
+-   Created another column continent based on the manufacturer's origin.
+
+-   Removed all the vehicles manufactured in 2022 and posted in 2021.
+
+-   Replaced model names which are dirty with NA.
+
+-   Considered *rover* vehicles as *Land Rover.*
+
+-   Selected all the distinct rows.
+
+    ## Correlation between miles driven and price across vehicles whose age is less than 20
+
+```{r 1.Year vs odometer ; year vs price dual Y axis,echo=FALSE, message=FALSE, warning=FALSE}
+
+df5 <- subset(df, select = c(price,odometer,year))
+df5 <- filter(df5, year >= 2000)
+df5 <- filter(df5, price < 100000)
+df5 <- filter(df5, odometer > 0)
+df5 <- filter(df5, odometer < 9999999)
+df5 <- df5 %>% drop_na()
+
+# Value used to transform the data
+coeff <- 5
+
+# A few constants
+odometerColor <- "#69b3a2"
+priceColor <- "orange3"
+
+new_df <- df5 %>% group_by(year) %>%
+  dplyr::summarize(across(everything(),list(mean)))
+
+ggplot(new_df, aes(x=2021 - year)) +
+  geom_bar( aes(y=odometer_1 / coeff),
+            stat="identity", 
+            size=.1, 
+            fill=odometerColor,
+            alpha=.4) + 
+  geom_line( aes(y=price_1),
+             size=1, 
+             color=priceColor) +
+  
+  scale_y_continuous(
+    # Features of the first axis
+  name = "(Average miles driven) / 5",
+    
+    # Add a second axis and specify its features
+    sec.axis = sec_axis(~., name="Average Price ($)")) + 
+  
+  #theme_ipsum() +
+  xlab("Age of the vehicle (years)")+
+
+  theme(
+    axis.title.y = element_text(color = odometerColor,
+                                size=12),
+    axis.title.y.right = element_text(color = priceColor,
+                                      size=12), 
+    axis.title.x = element_text(color = 'blue',
+                                size=12)) +
+
+  ggtitle("Average miles driven and Average Price analysis over the vehicle's age")
+
+```
+
+For the purpose of aesthetics and better understanding, I have decreased the scale of y-left by a factor of 5. It can be inferred that as the age of the vehicle increases the price keeps decreasing, and similarly with the age, average miles driven increases.
+
+There is a hike in average price for vehicles that are 1 year old which happens to be the highest average price across all the ages. Price difference for vehicles between the ages of 15 and 20 is almost stagnant.
+
+## Average prices across the states
+
+```{r 2.average price by state across United States,echo=FALSE, message=FALSE, warning=FALSE}
+
+df9 <- subset(df, select = c(state,price))
+df9 <- filter(df9, price < 200000)
+df9 <- filter(df9, price > 1000)
+df9 <- df9 %>% drop_na()
+df9 <- df9 %>% group_by(state) %>%
+  dplyr::summarize(across(everything(),list(mean)))
+
+plot_usmap(data = df9, values = "price_1",labels=TRUE) +
+  ggtitle("Average prices across states")+
+scale_fill_continuous( name = "Average price($)",
+                       label = scales::comma)+
+theme(legend.position = "right",
+      panel.background = element_rect(color = "black",
+                                      fill = "ivory2"))
+```
+
+Map showing average prices across the states in the US. West Virginia, Utah, and Washington have the highest average prices. Although the number of postings on Craigslist for California is the highest, its average price is less.
+
+The North-East region has the lowest average price across the country, while the North-West region has comparatively higher prices.
+
+## Manufacturers by the continent they were founded in
+
+```{r 3.CONTINENT WISE MANUFACTURERS,echo=FALSE, message=FALSE, warning=FALSE}
+
+df2 <- df %>% drop_na(manufacturer)
+
+# create an edge list data frame giving the hierarchical structure of your individuals
+
+d1 <- data.frame(from="origin", to=df2$continent)
+d2 <- data.frame(from=d1$to, to=df2$manufacturer)
+edges <- rbind(d1, d2)
+ 
+# We can add a second data frame with information for each node!
+vertices = data.frame(
+  name = unique(c(as.character(edges$from),
+                  as.character(edges$to))),
+  value = runif(45)) 
+
+vertices$continent = edges$from[ match( vertices$name, edges$to)]
+
+# Create a graph object 
+mygraph <- graph_from_data_frame( edges, vertices=vertices )
+ 
+# Basic tree
+ggraph(mygraph, 
+       layout = 'dendrogram', 
+       circular = FALSE) + 
+  geom_edge_diagonal() +
+  geom_node_text( aes(label=name, 
+                      filter=leaf, 
+                      color=continent),
+                  angle=90,
+                  hjust=1,
+                  nudge_y = -0.07) +
+  geom_node_point(aes(filter=leaf, 
+                      color=continent),
+                  alpha=0.6) +
+  ylim(-0.9, NA)+
+  theme(legend.position="right")+
+  ggtitle("CONTINENT WISE MANUFACTURERS")
+```
+
+All the manufacturers on Craigslist are based on three continents, Asia, North America, and Europe. Most manufacturers in Asia belong to Japan or South Korea, and in North America, it's just the USA. The number of manufacturers across the continents differs by at most 3.
+
+## Time Series for Continent wise manufacturer's
+
+```{r 4.continent wise popularity, echo=FALSE, message=FALSE, warning=FALSE}
+
+df3 <- subset(df, select = c(continent,year))
+df3 <- df3 %>% 
+  drop_na(continent)
+df3 <- df3 %>%
+  group_by(continent, year) %>%
+ dplyr::summarise(count=n())
+
+# Plot
+ggplot(df3, aes(x=year, y=count))+
+    geom_line(aes(color = continent))+
+  xlab('Entry Year')+
+  ylab('number of postings')+
+  ggtitle("Popularity of continent-wise-makes over the years")
+```
+
+Between 2000 and 2021, the listings of all the three categories has increased gradually, except for the year 2007 when there was a massive dip for North American makes. Amongst the 3, North American brands are more popular, and Asian makes are the least.
+
+It can be observed that around the entry year 1930, Craigslist has listed vehicles founded in Europe and Craigslist has Asian-based vehicles around the entry year 1970.
+
+## Top 5 Manufacturers and their most selling 3 models
+
+```{r 5.treemap of manufacturers and models,echo=FALSE, message=FALSE, warning=FALSE}
+
+ df2 <- subset(df, select = c(manufacturer,model))
+ df2 <- df2 %>% drop_na(manufacturer)
+ df2 <- df2 %>% drop_na(model)
+ df2 <- subset(df2, manufacturer %in%
+                 dplyr::count(df2, manufacturer, sort=T)[1:5]$manufacturer)
+chev_df=df2[df2$manufacturer %in% 
+              c("chevrolet")]
+ford_df=df2[df2$manufacturer %in%
+              c("ford")]
+toy_df=df2[df2$manufacturer %in% 
+             c("toyota")]
+jeep_df=df2[df2$manufacturer %in% 
+             c("jeep")]
+honda_df=df2[df2$manufacturer %in% 
+             c("honda")]
+ chev_df <- subset(chev_df, model %in% 
+                     dplyr::count(chev_df, model, sort=T)[1:3]$model)
+ ford_df <- subset(ford_df, model %in% 
+                     dplyr::count(ford_df, model, sort=T)[1:3]$model)
+ toy_df <- subset(toy_df, model %in% 
+                    dplyr::count(toy_df, model, sort=T)[1:3]$model)
+ jeep_df <- subset(jeep_df, model %in% 
+                    dplyr::count(jeep_df, model, sort=T)[1:3]$model)
+ honda_df <- subset(honda_df, model %in% 
+                    dplyr::count(honda_df, model, sort=T)[1:3]$model)
+merged_df <- do.call("rbind", list(chev_df, ford_df, toy_df,jeep_df,honda_df))
+merged_df <- merged_df %>% 
+  group_by(manufacturer,model) %>%
+  dplyr::summarise(count=n())
+
+# treemap
+treemap(merged_df,
+            index=c('manufacturer','model'),
+            vSize="count",
+            type="index",
+            palette = "Set2",
+            fontsize.labels=c(17,12),
+            fontcolor.labels=c("white","black"),
+            fontface.labels=c(2,1),
+            overlap.labels=0.5,
+            align.labels=list(c("center", "top"), 
+                              c("center", "center")),   
+            inflate.labels=F,
+            title="Top 3 Models of 5 most popular Manufacturers",
+            fontsize.title=15,) 
+```
+
+3 vehicle manufacturers that sold most vehicles are Ford, Chevrolet, Honda, Toyota and Jeep. Their best models are F 150, Silverado 1500, Accord, Camry and Wrangler respectively.
+
+Major share of the market belongs to Ford's F-150 followed by Silverado 1500. Listings of Accord and Camry are close to each other.
+
+## Average price analysis of top 5 Manufacturer's top selling model
+
+```{r 6.top models of 3 best manufacturers box plot,echo=FALSE, message=FALSE, warning=FALSE}
+
+df10 <- subset(df, select = c(model,price,year))
+df10 <- filter(df10, price < 100000)
+df10 <- filter(df10, year >= 1990)
+
+df10 <- df10 %>% drop_na()
+df10$bins <- cut(df10$year,breaks = 6)
+df10=df10[df10$model %in% 
+            c("silverado 1500","f-150","camry","accord","wrangler")]
+df10 <- df10 %>% group_by(model,bins) %>%
+  dplyr::summarize(across(everything(),list(mean)))
+
+# Small multiple
+ggplot(df10, aes(fill=model, y=price_1, x=bins)) + 
+    geom_bar(position="dodge", stat="identity") +
+    scale_fill_viridis(discrete = T) +
+    ggtitle("Prices of top models of 5 Manufacturers over the years") +
+    theme(axis.text.x = element_text(angle = 90),
+          legend.position = 'right')+
+    xlab("Entry Years")+
+    ylab("Average Price($)")
+```
+
+There was a steady increase in the prices of all 5 models over the years. In vehicles manufactured in 2016 and 2021, the price hike is the most. Although Ford's F-15 and Chevrolet's Silverado 1500 are top-selling models, their average prices are low compared to Jeep's Wrangler until 2016.
+
+Honda Accord, Toyota Camry and Ford F-150, and Chevrolet's Silverado 1500 are 2 pairs of competitors across the years the vehicle was manufactured in. Prices of Camry and Accord which entered the market between 1995 and 2000 have dipped, and they picked up thereon.
+
+## Average Odometer readings of top manufacturers by their condition
+
+```{r 7.Average odometer readings of top 5 manufacturers,echo=FALSE, message=FALSE, warning=FALSE}
+
+df6 <- subset(df, select = c(condition,manufacturer,odometer))
+df6 <- subset(df6, manufacturer %in% 
+                dplyr::count(df6, manufacturer, sort=T)[1:5]$manufacturer)
+df6 <- filter(df6, odometer > 99)
+df6 <- filter(df6, odometer < 999999)
+df6=df6[df6$condition %in%
+            c("good","new","salvage")]
+df6 <- df6 %>% 
+  drop_na()
+df6 <- df6 %>%
+  group_by(condition,manufacturer) %>%
+  dplyr::summarize(across(everything(),list(mean)))
+data <- df6
+
+# Set a number of 'empty bar' to add at the end of each group
+empty_bar <- 8900
+to_add <- data.frame( matrix(NA, 
+                             empty_bar*nlevels(data$condition),
+                             ncol(data)))
+colnames(to_add) <- colnames(data)
+to_add$condition <- rep(levels(data$condition), 
+                        each=empty_bar)
+to_add$manufacturer <- as.character(to_add$manufacturer)
+to_add$odometer_1 <- as.integer(to_add$odometer_1)
+data <-  rbind(data, to_add)
+data <- data %>% 
+  arrange(condition, odometer_1)
+data$id <- seq(1, nrow(data))
+
+# Get the name and the y position of each label
+label_data <- data
+number_of_bar <- nrow(label_data)
+angle <- 90 - 360 * (label_data$id-0.5) /number_of_bar
+label_data$hjust <- ifelse( angle < -90, 1, 0)
+label_data$angle <- ifelse(angle < -90, angle+180, angle)
+
+ggplot(data, aes(x=as.factor(id), y=odometer_1, fill=condition)) +
+  geom_bar(stat="identity", 
+           alpha=0.5) +
+  ylim(-49999, 
+       max(df6$odometer_1+20)) +
+  theme_minimal() +
+  ggtitle('Average odometer readings of top 3 manufacturers')+
+  coord_polar() +
+  ylab("Average odometer reading (miles)") +
+  ggtitle('Average odometer readings of top 5 manufacturers')+
+  theme(
+    axis.text.x = element_blank(),
+    axis.title.x = element_blank(), 
+    plot.margin = unit(rep(0,5.3), "cm")) +
+  geom_text(data=label_data, 
+            aes(x=id, y=odometer_1, 
+                label=manufacturer, 
+                hjust=hjust), 
+            color="black", 
+            fontface="bold",
+            alpha=0.6, 
+            size=2.5, 
+            angle= label_data$angle,
+            inherit.aes = FALSE)
+```
+
+The average odometer readings of all the top 5 manufacturers are comparable in a given condition. Salvage vehicles had the highest odometer reading while the new ones had the least. Amongst the salvage, Toyota and Honda vehicles had the highest average odometer reading of 150,000 miles while Jeep and Chevrolet had the lowest odometer readings amongst the new vehicles of 50,000 miles.
+
+Chevrolet's and Jeep's good condition vehicle's average odometer readings are comparable with that of Toyota and Honda's new condition average odometer readings.
+
+## Top 5 Manufacturer's listings across popular Types
+
+```{r 8.top 5 manufacturers for a given type,echo=FALSE, message=FALSE, warning=FALSE}
+df7 <- subset(df, select = c(manufacturer,type))
+df7 <- subset(df7, manufacturer %in% 
+                dplyr::count(df7, manufacturer, sort=T)[1:5]$manufacturer)
+df7 <- df7 %>%
+  drop_na()
+df7 <- subset(df7, type %in%
+                dplyr::count(df7, type, sort=T)[1:5]$type)
+df7 <- df7 %>% 
+  group_by(type,manufacturer) %>%
+ dplyr::summarise(count=n())
+
+ggballoonplot(df7, fill = "value")+
+  scale_fill_viridis_c(option = "C")+
+  ggtitle('Number of listings of vehicle Manufacturers across 5 Types')
+  
+```
+
+According to this balloon plot visualization, Chevrolet, Ford, and Toyota have a solid footprint across all 5 variants. Jeep is most popular among the top manufacturers of SUVs. Honda and Toyota have the most number of sedan listings on Craigslist.
+
+Unlike Ford's other competitors, Ford has a clear dominance in the truck variant with a count of almost 10,000 listings. Both Ford and Chevrolet have the most pickup vehicles.
+
+## Distribution of electric, and hybrid vehicles across the state of California
+
+```{r 10.top 5 states to purchase doughnut chart, echo=FALSE, message=FALSE, warning=FALSE}
+
+# Libraries
+#library(ggplot2)
+#library(dplyr)
+
+df8 <- subset(df, select = c(state,fuel,lat,long))
+df8$fuel <- with(df8, ifelse(fuel %in%
+                               c('electric'), 'electric', 
+                             ifelse(fuel %in% 
+                                      c('hybrid'),'hybrid', NA)))
+
+df8<-mutate(df8, Result = ifelse(lat > 39 , 
+                                 ifelse(long>-120,"Pass","Fail"), "Fail"))
+df8<-filter(df8,Result!='Pass')
+df8 <- subset(df8, state %in%
+                dplyr::count(df8, state, sort=T)[1:1]$state)
+df8$long[df8$long>=-116] <- NA
+df8$lat[df8$lat>=40.5] <- NA
+df8 <- df8 %>% 
+  drop_na()
+df8 <- df8 %>% 
+  group_by(fuel,state,lat,long) %>%
+ dplyr::summarise(count=n())
+df8$state[df8$state=="ca"] <- "California"
+
+# Get the world polygon and extract UK
+library(maps)
+library(mapproj)
+cali <- map_data("state") %>% 
+  filter(region=="california")
+library(ggrepel)
+ggplot() +
+  geom_polygon(data = cali, 
+               aes(x=long, y = lat, group = group), 
+               fill="ivory2", 
+               alpha=0.8) +
+  geom_point(data=df8, 
+             aes(x=long, 
+                 y=lat, 
+                 size=count,
+                 color=fuel),
+             alpha=0.3) +
+  scale_size_continuous(range=c(1,8)) +
+  #ylim(40,41) + 
+  #xlim(-123,-121.5) +
+  ylim(31,41.8) + 
+  xlim(-124,-114) + 
+  coord_map() + 
+  scale_color_manual(values = c("hybrid" = "lightskyblue", "electric" = "red1"))+
+  ggtitle("Electric and Hybrid listings in California") +
+  theme(legend.position = 'right',
+        axis.line=element_blank(),
+        axis.text.x=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks=element_blank(),  
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank())
+```
+
+Here is a map of California featuring all the electric and hybrid vehicle listings on Craigslist across the state. Most electric and hybrid listings are in California. However, there are only about 1,166 listings for the same have been put up on Craigslist in the months of April and May, 2021.
+
+Through this visualization, distribution and count of Hybrid vehicles are more than that of Electric's. San Francisco, and Riverside have more listings of Electric vehicles than Hybrid. Otherwise, it is mostly hybrid vehicles across the state. Most listings are in the Bay area, Santa Barbara, Ventura, Los Angeles, and Sacramento.
+
+## Top 3 manufacturers of Electric, and Hybrid vehicles in California
+
+```{r Top 3 Electric and Hybrid manufacturers in California, echo=FALSE, message=FALSE, warning=FALSE}
+df11 <- subset(df, select = c(fuel,manufacturer,state))
+df11 <- df11%>% 
+  filter(state == 'ca')
+df11$fuel <- with(df11, ifelse(fuel %in%
+                               c('electric'), 'electric', 
+                             ifelse(fuel %in% 
+                                      c('hybrid'),'hybrid', NA)))
+df11 <- df11 %>% 
+  drop_na()
+df11 <- df11 %>% 
+  group_by(manufacturer)%>%
+  dplyr::summarise(count=n())%>%
+  top_n(3)
+
+# Compute percentages
+df11$fraction = df11$count / sum(df11$count)
+
+# Compute the cumulative percentages (top of each rectangle)
+df11$ymax = cumsum(df11$fraction)
+
+# Compute the bottom of each rectangle
+df11$ymin = c(0, head(df11$ymax, n=-1))
+
+# Compute label position
+df11$labelPosition <- (df11$ymax + df11$ymin) / 2
+
+# Compute a good label
+df11$label <- paste0(df11$manufacturer, "\nlistings: ", df11$count)
+
+# Make the plot
+ggplot(df11, aes(ymax=ymax, ymin=ymin, xmax=4, xmin=3, fill=manufacturer)) +
+     geom_rect() +
+  geom_label( x=3.5, aes(y=labelPosition, label=label), size=3) +
+  scale_fill_manual(values = c('steelblue2','skyblue','dodgerblue4')) +
+     coord_polar(theta="y") +
+     xlim(c(-1.5, 4)) +
+  theme_void() +
+  theme(legend.position = "none") +
+  ggtitle("Top 3 Electric and Hybrid vehicle manufacturers by listings")
+```
+
+In the above doughnut chart number of listings of the top 3 manufacturers of electric and hybrid vehicles in California state are represented. It can be observed that Toyota has a clear dominance, over 50%, with its competitors, Ford and Tesla.
+
+This is probably because Tesla is relatively new in 2021 and not many have put up their vehicles for sale on Craigslist then. Toyota's hybrid vehicles are more in number than electric, hence the dominance.
+
+## Average price comparison of top 2 Electric and Hybrid vehicle manufacturers in California by region
+
+```{r Average price analysis of top 2 Electric, echo=FALSE, message=FALSE, warning=FALSE}
+df12 <- subset(df, select = c(fuel,manufacturer,state,region,price))
+df12 <- df12%>% 
+  filter(state == 'ca')
+df12 <- df12%>%
+  filter(region %in%
+           c('los angeles','SF bay area','stockton','ventura county'))
+df12 <- df12%>%
+  filter(fuel %in%
+           c('electric','hybrid'))
+df12 <- df12%>% 
+  filter(manufacturer %in%
+           c('toyota','ford'))
+df12 <- subset(df12, region %in% 
+                dplyr::count(df12, region, sort=T)[1:10]$region)
+df12 <- df12 %>% group_by(fuel,manufacturer,state,region) %>%
+  dplyr::summarize(across(everything(),list(mean)))
+df12 <- df12 %>% 
+  drop_na()
+
+ggplot(df12, aes(fill=region, y=price_1, x=reorder(manufacturer,price_1))) + 
+    geom_bar(position="stack", stat="identity") +
+    scale_fill_viridis(discrete = T) +
+    ggtitle("Region wise average prices of Toyota and Ford") +
+    theme(legend.position = 'right',
+          plot.title = element_text(size = 12,face = "bold"))+
+    xlab("Manufacturer")+
+    ylab("Average Price($)")+
+    facet_wrap(~fuel)
+  
+```
+
+It can be inferred that in most regions of California, electric variants are costlier than hybrids except for Ford in Ventura county and Los Angeles. Suggesting that the hybrid vehicles of Ford are far more superior/ valuable than Toyota.
+
+Toyota's Hybrid variants are priced higher than Ford's in the SF Bay area and Stockton, while coming to electric, Toyota has higher value in Los Angels and Stockton. The average prices of both vehicle manufacturers in all regions are under \$25,000
+
+# Conclusion
+
+Through this dataset, an analysis was made on several aspects. I included another column that identifies the continent in which the vehicle was founded.
+
+Through this, we can better understand the trust and popularity of brands concerning their origin.
+
+After performing data cleaning and analysis, we can understand that amongst the vehicles manufactured in the last 20 years the average odometer reading increases gradually up to 150,000 miles.
+
+With the age, contrary to the odometer reading, the price of the car decreased almost linearly and flattened for the vehicles whose age is between 15 and 20.
+
+After performing an average price analysis by the state on the US map, we learn that West Virginia, Utah, and Washington have the highest average prices.
+
+Although the number of postings on Craigslist for California is the highest its average price is comparatively low.
+
+It is also observed that there is a stark difference between the North-West and North-East regions of the US concerning the price.
+
+It was found that the distribution of manufacturers by their origin is almost uniform.
+
+There are 15 from \*North America, 12 from Asia, and 14 from Europe.
+
+However, all the manufacturers based in Asia are either from Japan or South Korea and all the vehicles from North America are based in the US.
+
+Their popularity across the different ages of the vehicle has been increasing except in 2007 when there was a massive di for American-made manufacturers.
+
+There are listings of European vehicles which are as old as almost 90 years and Asian vehicles which are almost 50 years old.
+
+Amongst all the manufacturers, Ford, Chevrolet, Honda, Jeep and Toyota are most popular ones and their best models are F-150, Silverado 1500, Accord, Camry and Wrangler respectively.
+
+F-150 holds a major share in the market as compared to any other model.
+
+Amongst all the aforementioned models, the average price increased with decreasing age.
+
+Wrangler consistently had higher prices except for the cars manufactured in the last 5 years, both Silverado 1500 and F-150 had overtaken Wrangler.Camry and Accord were valued almost the same across the years.
+
+As per the mentioned condition (good, new, and salvage), the average odometer readings of all the op 5 manufacturers are comparable.Salvage vehicles had the highest odometer reading while the new ones had the least.
+
+Amongst the salvage, Toyota and Honda vehicles had the highest average odometer reading of 150,000 miles while Jeep and Chevrolet had the lowest odometer readings amongst the new vehicles of 50,000 miles.
+
+Chevrolet, Toyota, and Ford have a good market across the variants, coupe, pickup, sedan, SUV, and truck. Across the 5 manufacturers Jeep has a stronghold for SUVs.Honda and Toyota have the most number of sedan listings on Craigslist.
+
+Unlike Ford's other competitors, Ford has a clear dominance in the truck variant with a count of almost 10,000 listings.Both Ford and Chevrolet have the most pickup vehicles.The entire world is going towards electric vehicles due to increasing global warming.
+
+To better understand the trends of electric vehicles in the US market I have made some visualizations, however, since the number of listings for electric is low, I included hybrid as well.
+
+In the state of California, which has the most number of electric and hybrid listings, San Francisco, and Riverside have more electric vehicles for sale than any other region in the state when compared with the number of listings of hybrid vehicles.
+
+Most listings are in the Bay area, Santa Barbara, Ventura, Los Angeles, and Sacramento.The top 3 manufacturers of electric and hybrid are Toyota, Tesla, and Ford.It can be observed that Toyota has a clear dominance, over 50%, over its competitors. Toyota's hybrid vehicles are more in number than electric, hence the dominance.
+
+It can be inferred that in most regions of California, electric variants are costlier than hybrids except for Ford in Ventura county and Los Angeles. Suggesting that hybrid vehicles of Ford are far more superior/ valuable than Toyota. Average prices of both vehicle manufacturers, Toyota and Ford in all regions are under \$25,000. Toyota's Hybrid variants are priced higher than Ford's in SF Bay area and Stockton, while coming to electric, Toyota has higher value in Los Angels and Stockton.
+
+Through this assignment I was able to analyze some of the things mentioned in the introduction and wen beyond those by including the continent column.
+
+# Appendix
+
+## Data Dictionary
+
+The data regarding all the relevant columns are listed here:
+
+**Region-** City or Region in which the listing was made
+
+**Price-** The price of the vehicle in USD
+
+**Year-** Year in which the vehicle was bought
+
+**Manufacturer-** manufacturer of the vehicle
+
+**Model-** model of the vehicle
+
+**Condition-** Condition of the vehicle it is in
+
+**Cylinders-** Number of cylinders of the engine
+
+**Fuel-** Type of the fuel used
+
+**Odometer-** Odometer readings of the vehicle
+
+**Drive-** type of drive
+
+**Type-** Type of the vehicle
+
+**State-** The state in which the listing was made
+
+**Lat-** latitude of the region
+
+**Long-** longitude of the region
+
+**Continent-** Continent in which the vehicle was founded
